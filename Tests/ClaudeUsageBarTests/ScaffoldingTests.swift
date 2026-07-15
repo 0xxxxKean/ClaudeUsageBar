@@ -1,7 +1,5 @@
-import XCTest
+import Testing
 
-final class ScaffoldingTests: XCTestCase {
-    func test_packageBuilds() {
-        XCTAssertTrue(true)
-    }
+@Test func packageBuilds() {
+    #expect(true)
 }

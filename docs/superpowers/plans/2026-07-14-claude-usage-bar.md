@@ -6,7 +6,9 @@
 
 **Architecture:** Swift Package Manager executable target using SwiftUI's `MenuBarExtra` (macOS 13+). A thin Keychain-reading service and a thin HTTP client feed a `@MainActor` view model that exposes a small state enum; a SwiftUI popover renders that state. A shell script assembles the SPM binary into a `.app` bundle (with `LSUIElement` so it has no Dock icon), ad-hoc signs it, and wraps it in a `.dmg`.
 
-**Tech Stack:** Swift 5 (tools-version 5.9, running on installed Swift 6.1.2 toolchain), SwiftUI, XCTest, macOS Security framework (Keychain), URLSession, `hdiutil`/`codesign` for packaging. No Xcode.app required — Command Line Tools are sufficient.
+**Tech Stack:** Swift 5 (tools-version 5.9, running on installed Swift 6.1.2 toolchain), SwiftUI, Swift Testing (`import Testing`), macOS Security framework (Keychain), URLSession, `hdiutil`/`codesign` for packaging. No Xcode.app required — Command Line Tools are sufficient.
+
+**Correction (discovered during Task 1 execution):** This machine has Xcode Command Line Tools only, no Xcode.app, so `XCTest.framework` is not installed and `import XCTest` fails with "no such module 'XCTest'". Verified working alternative: Swift Testing (`import Testing`, `@Test`, `#expect`), which ships with the Swift toolchain itself (confirmed working here on Swift 6.1.2, Testing Library Version 124.4) and requires no Xcode. All test code below uses Swift Testing, not XCTest.
 
 ---
 
@@ -77,12 +79,10 @@ struct ClaudeUsageBarApp: App {
 
 `Tests/ClaudeUsageBarTests/ScaffoldingTests.swift`:
 ```swift
-import XCTest
+import Testing
 
-final class ScaffoldingTests: XCTestCase {
-    func test_packageBuilds() {
-        XCTAssertTrue(true)
-    }
+@Test func packageBuilds() {
+    #expect(true)
 }
 ```
 
@@ -97,11 +97,11 @@ dist/
 
 - [ ] **Step 5: Verify build and test**
 
-Run: `cd "/Users/kean/AI workspace/ClaudeUsageBar" && swift build`
+Run: `swift build`
 Expected: `Build complete!`
 
 Run: `swift test`
-Expected: `Test Suite 'All tests' passed` with 1 test run.
+Expected: `Test run with 1 test passed` (Swift Testing output format).
 
 - [ ] **Step 6: Commit**
 
@@ -122,55 +122,53 @@ git commit -m "Scaffold ClaudeUsageBar SPM project"
 
 `Tests/ClaudeUsageBarTests/OAuthCredentialParsingTests.swift`:
 ```swift
-import XCTest
+import Testing
 @testable import ClaudeUsageBar
 
-final class OAuthCredentialParsingTests: XCTestCase {
-    func test_parsesValidCredentialJSON() throws {
-        let json = """
-        {
-          "claudeAiOauth": {
-            "accessToken": "sk-ant-oat01-test",
-            "refreshToken": "sk-ant-ort01-test",
-            "expiresAt": 4102444800000,
-            "scopes": ["user:inference"],
-            "subscriptionType": "pro",
-            "rateLimitTier": "default_claude_ai"
-          }
-        }
-        """.data(using: .utf8)!
-
-        let credential = try parseCredentialData(json)
-
-        XCTAssertEqual(credential.accessToken, "sk-ant-oat01-test")
-        XCTAssertEqual(credential.subscriptionType, "pro")
-        XCTAssertFalse(credential.isExpired)
+@Test func parsesValidCredentialJSON() throws {
+    let json = """
+    {
+      "claudeAiOauth": {
+        "accessToken": "sk-ant-oat01-test",
+        "refreshToken": "sk-ant-ort01-test",
+        "expiresAt": 4102444800000,
+        "scopes": ["user:inference"],
+        "subscriptionType": "pro",
+        "rateLimitTier": "default_claude_ai"
+      }
     }
+    """.data(using: .utf8)!
 
-    func test_expiredCredentialReportsExpired() throws {
-        let json = """
-        {
-          "claudeAiOauth": {
-            "accessToken": "sk-ant-oat01-test",
-            "refreshToken": "sk-ant-ort01-test",
-            "expiresAt": 1000000000000,
-            "subscriptionType": "pro",
-            "rateLimitTier": "default_claude_ai"
-          }
-        }
-        """.data(using: .utf8)!
+    let credential = try parseCredentialData(json)
 
-        let credential = try parseCredentialData(json)
+    #expect(credential.accessToken == "sk-ant-oat01-test")
+    #expect(credential.subscriptionType == "pro")
+    #expect(!credential.isExpired)
+}
 
-        XCTAssertTrue(credential.isExpired)
+@Test func expiredCredentialReportsExpired() throws {
+    let json = """
+    {
+      "claudeAiOauth": {
+        "accessToken": "sk-ant-oat01-test",
+        "refreshToken": "sk-ant-ort01-test",
+        "expiresAt": 1000000000000,
+        "subscriptionType": "pro",
+        "rateLimitTier": "default_claude_ai"
+      }
     }
+    """.data(using: .utf8)!
 
-    func test_malformedJSONThrows() {
-        let json = "{ \"not\": \"valid\" }".data(using: .utf8)!
+    let credential = try parseCredentialData(json)
 
-        XCTAssertThrowsError(try parseCredentialData(json)) { error in
-            XCTAssertEqual(error as? CredentialParsingError, .invalidJSON)
-        }
+    #expect(credential.isExpired)
+}
+
+@Test func malformedJSONThrows() {
+    let json = "{ \"not\": \"valid\" }".data(using: .utf8)!
+
+    #expect(throws: CredentialParsingError.invalidJSON) {
+        try parseCredentialData(json)
     }
 }
 ```
@@ -178,7 +176,7 @@ final class OAuthCredentialParsingTests: XCTestCase {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `swift test --filter OAuthCredentialParsingTests`
-Expected: FAIL to build — `cannot find 'parseCredentialData' in scope` (the type/function don't exist yet).
+Expected: FAIL to build — `cannot find 'parseCredentialData' in scope` (the type/function don't exist yet). (If `--filter` matches nothing because the symbol doesn't exist yet, running plain `swift test` will show the same compile error — either way, confirm it's a "not found" compile failure, not a pass.)
 
 - [ ] **Step 3: Implement the model and parsing function**
 
@@ -217,7 +215,7 @@ func parseCredentialData(_ data: Data) throws -> OAuthCredential {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `swift test --filter OAuthCredentialParsingTests`
-Expected: `Test Suite 'OAuthCredentialParsingTests' passed` with 3 tests run, 0 failures.
+Expected: `Test run with 3 tests passed` (Swift Testing output format), 0 failures.
 
 - [ ] **Step 5: Commit**
 
@@ -306,49 +304,47 @@ git commit -m "Add Keychain-backed credential store"
 
 `Tests/ClaudeUsageBarTests/UsageResponseParsingTests.swift`:
 ```swift
-import XCTest
+import Testing
 @testable import ClaudeUsageBar
 
-final class UsageResponseParsingTests: XCTestCase {
-    func test_parsesFiveHourAndSevenDay() throws {
-        let json = """
-        {
-          "five_hour": { "utilization": 63.0, "resets_at": "2026-07-14T16:49:59.546972+00:00" },
-          "seven_day": { "utilization": 28.0, "resets_at": "2026-07-20T02:59:59.546990+00:00" },
-          "seven_day_opus": null,
-          "seven_day_sonnet": null,
-          "limits": [],
-          "spend": {}
-        }
-        """.data(using: .utf8)!
-
-        let usage = try parseUsageResponseData(json)
-
-        XCTAssertEqual(usage.fiveHour.utilization, 63.0)
-        XCTAssertEqual(usage.sevenDay.utilization, 28.0)
-        XCTAssertNil(usage.sevenDayOpus)
+@Test func parsesFiveHourAndSevenDay() throws {
+    let json = """
+    {
+      "five_hour": { "utilization": 63.0, "resets_at": "2026-07-14T16:49:59.546972+00:00" },
+      "seven_day": { "utilization": 28.0, "resets_at": "2026-07-20T02:59:59.546990+00:00" },
+      "seven_day_opus": null,
+      "seven_day_sonnet": null,
+      "limits": [],
+      "spend": {}
     }
+    """.data(using: .utf8)!
 
-    func test_parsesOptionalOpusWindow() throws {
-        let json = """
-        {
-          "five_hour": { "utilization": 10.0, "resets_at": "2026-07-14T16:49:59Z" },
-          "seven_day": { "utilization": 5.0, "resets_at": "2026-07-20T02:59:59Z" },
-          "seven_day_opus": { "utilization": 42.0, "resets_at": "2026-07-20T02:59:59Z" }
-        }
-        """.data(using: .utf8)!
+    let usage = try parseUsageResponseData(json)
 
-        let usage = try parseUsageResponseData(json)
+    #expect(usage.fiveHour.utilization == 63.0)
+    #expect(usage.sevenDay.utilization == 28.0)
+    #expect(usage.sevenDayOpus == nil)
+}
 
-        XCTAssertEqual(usage.sevenDayOpus?.utilization, 42.0)
+@Test func parsesOptionalOpusWindow() throws {
+    let json = """
+    {
+      "five_hour": { "utilization": 10.0, "resets_at": "2026-07-14T16:49:59Z" },
+      "seven_day": { "utilization": 5.0, "resets_at": "2026-07-20T02:59:59Z" },
+      "seven_day_opus": { "utilization": 42.0, "resets_at": "2026-07-20T02:59:59Z" }
     }
+    """.data(using: .utf8)!
 
-    func test_malformedJSONThrows() {
-        let json = "{ \"nope\": true }".data(using: .utf8)!
+    let usage = try parseUsageResponseData(json)
 
-        XCTAssertThrowsError(try parseUsageResponseData(json)) { error in
-            XCTAssertEqual(error as? UsageParsingError, .invalidJSON)
-        }
+    #expect(usage.sevenDayOpus?.utilization == 42.0)
+}
+
+@Test func malformedJSONThrows() {
+    let json = "{ \"nope\": true }".data(using: .utf8)!
+
+    #expect(throws: UsageParsingError.invalidJSON) {
+        try parseUsageResponseData(json)
     }
 }
 ```
@@ -357,6 +353,7 @@ final class UsageResponseParsingTests: XCTestCase {
 
 Run: `swift test --filter UsageResponseParsingTests`
 Expected: FAIL to build — `cannot find 'parseUsageResponseData' in scope`.
+(As with Task 2: if `--filter` matches nothing, plain `swift test` shows the same compile error.)
 
 - [ ] **Step 3: Implement the model and parsing function**
 
@@ -403,7 +400,7 @@ func parseUsageResponseData(_ data: Data) throws -> UsageResponse {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `swift test --filter UsageResponseParsingTests`
-Expected: `Test Suite 'UsageResponseParsingTests' passed` with 3 tests run, 0 failures.
+Expected: `Test run with 3 tests passed` (Swift Testing output format), 0 failures.
 
 - [ ] **Step 5: Commit**
 
@@ -494,7 +491,7 @@ git commit -m "Add HTTP usage API client"
 
 `Tests/ClaudeUsageBarTests/UsageViewModelTests.swift`:
 ```swift
-import XCTest
+import Testing
 @testable import ClaudeUsageBar
 
 private struct FakeCredentialStore: CredentialStore {
@@ -543,77 +540,82 @@ private func makeUsageResponse() -> UsageResponse {
 }
 
 @MainActor
-final class UsageViewModelTests: XCTestCase {
-    func test_successfulRefreshProducesLoadedState() async {
-        let viewModel = UsageViewModel(
-            credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
-            apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
-        )
+@Test func successfulRefreshProducesLoadedState() async {
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
+    )
 
-        await viewModel.refresh()
+    await viewModel.refresh()
 
-        guard case .loaded(let snapshot, _) = viewModel.state else {
-            return XCTFail("Expected .loaded, got \(viewModel.state)")
-        }
-        XCTAssertEqual(snapshot.sessionPercent, 63)
-        XCTAssertEqual(snapshot.weeklyPercent, 28)
-        XCTAssertEqual(snapshot.planLabel, "Pro")
+    guard case .loaded(let snapshot, _) = viewModel.state else {
+        Issue.record("Expected .loaded, got \(viewModel.state)")
+        return
     }
+    #expect(snapshot.sessionPercent == 63)
+    #expect(snapshot.weeklyPercent == 28)
+    #expect(snapshot.planLabel == "Pro")
+}
 
-    func test_missingCredentialProducesNotLoggedIn() async {
-        let viewModel = UsageViewModel(
-            credentialStore: FakeCredentialStore(result: .failure(CredentialStoreError.notFound)),
-            apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
-        )
+@MainActor
+@Test func missingCredentialProducesNotLoggedIn() async {
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .failure(CredentialStoreError.notFound)),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
+    )
 
-        await viewModel.refresh()
+    await viewModel.refresh()
 
-        XCTAssertEqual(viewModel.state, .notLoggedIn)
+    #expect(viewModel.state == .notLoggedIn)
+}
+
+@MainActor
+@Test func expiredCredentialProducesTokenExpired() async {
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: false))),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
+    )
+
+    await viewModel.refresh()
+
+    #expect(viewModel.state == .tokenExpired)
+}
+
+@MainActor
+@Test func networkFailureWithNoCacheProducesErrorNoCache() async {
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: QueuedUsageAPIClient(results: [.failure(UsageAPIError.httpError(500))])
+    )
+
+    await viewModel.refresh()
+
+    guard case .errorNoCache = viewModel.state else {
+        Issue.record("Expected .errorNoCache, got \(viewModel.state)")
+        return
     }
+}
 
-    func test_expiredCredentialProducesTokenExpired() async {
-        let viewModel = UsageViewModel(
-            credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: false))),
-            apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
-        )
+@MainActor
+@Test func networkFailureAfterPriorSuccessFallsBackToStale() async {
+    let client = QueuedUsageAPIClient(results: [
+        .success(makeUsageResponse()),
+        .failure(UsageAPIError.httpError(500))
+    ])
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: client
+    )
 
-        await viewModel.refresh()
+    await viewModel.refresh()
+    await viewModel.refresh()
 
-        XCTAssertEqual(viewModel.state, .tokenExpired)
+    guard case .staleWithError(let snapshot, _, let message) = viewModel.state else {
+        Issue.record("Expected .staleWithError, got \(viewModel.state)")
+        return
     }
-
-    func test_networkFailureWithNoCacheProducesErrorNoCache() async {
-        let viewModel = UsageViewModel(
-            credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
-            apiClient: QueuedUsageAPIClient(results: [.failure(UsageAPIError.httpError(500))])
-        )
-
-        await viewModel.refresh()
-
-        guard case .errorNoCache = viewModel.state else {
-            return XCTFail("Expected .errorNoCache, got \(viewModel.state)")
-        }
-    }
-
-    func test_networkFailureAfterPriorSuccessFallsBackToStale() async {
-        let client = QueuedUsageAPIClient(results: [
-            .success(makeUsageResponse()),
-            .failure(UsageAPIError.httpError(500))
-        ])
-        let viewModel = UsageViewModel(
-            credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
-            apiClient: client
-        )
-
-        await viewModel.refresh()
-        await viewModel.refresh()
-
-        guard case .staleWithError(let snapshot, _, let message) = viewModel.state else {
-            return XCTFail("Expected .staleWithError, got \(viewModel.state)")
-        }
-        XCTAssertEqual(snapshot.sessionPercent, 63)
-        XCTAssertFalse(message.isEmpty)
-    }
+    #expect(snapshot.sessionPercent == 63)
+    #expect(!message.isEmpty)
 }
 ```
 
@@ -621,6 +623,7 @@ final class UsageViewModelTests: XCTestCase {
 
 Run: `swift test --filter UsageViewModelTests`
 Expected: FAIL to build — `cannot find 'UsageViewModel' in scope`.
+(As with earlier tasks: if `--filter` matches nothing, plain `swift test` shows the same compile error.)
 
 - [ ] **Step 3: Implement the view model**
 
@@ -723,12 +726,12 @@ private func parseISODate(_ string: String?) -> Date? {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `swift test --filter UsageViewModelTests`
-Expected: `Test Suite 'UsageViewModelTests' passed` with 5 tests run, 0 failures.
+Expected: `Test run with 5 tests passed` (Swift Testing output format), 0 failures.
 
 - [ ] **Step 5: Run the full test suite**
 
 Run: `swift test`
-Expected: all tests across all files pass (1 scaffolding + 3 + 3 + 5 = 12 tests, 0 failures).
+Expected: all tests across all files pass (1 scaffolding + 3 + 3 + 5 = 12 tests, 0 failures). Swift Testing prints a final `Test run with 12 tests passed` line.
 
 - [ ] **Step 6: Commit**
 
