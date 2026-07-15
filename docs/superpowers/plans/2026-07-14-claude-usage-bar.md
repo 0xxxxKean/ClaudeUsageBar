@@ -340,7 +340,7 @@ import Testing
     #expect(usage.sevenDayOpus?.utilization == 42.0)
 }
 
-@Test func malformedJSONThrows() {
+@Test func malformedUsageJSONThrows() {
     let json = "{ \"nope\": true }".data(using: .utf8)!
 
     #expect(throws: UsageParsingError.invalidJSON) {
