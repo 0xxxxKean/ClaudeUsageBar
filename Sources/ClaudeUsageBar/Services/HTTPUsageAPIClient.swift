@@ -16,6 +16,7 @@ struct HTTPUsageAPIClient: UsageAPIClient {
     func fetchUsage(accessToken: String) async throws -> UsageResponse {
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "GET"
+        request.timeoutInterval = 10
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 

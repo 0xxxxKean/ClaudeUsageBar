@@ -43,6 +43,9 @@ final class UsageViewModel: ObservableObject {
         } catch CredentialStoreError.notFound {
             state = .notLoggedIn
             return
+        } catch CredentialStoreError.unreadable(_) {
+            state = fallbackState(message: "无法读取 Keychain 权限，请在弹出的系统对话框中允许访问，然后点击刷新")
+            return
         } catch {
             state = fallbackState(message: "读取登录信息失败")
             return
@@ -56,7 +59,7 @@ final class UsageViewModel: ObservableObject {
         do {
             let usage = try await apiClient.fetchUsage(accessToken: credential.accessToken)
             let snapshot = UsageSnapshot(
-                planLabel: credential.subscriptionType.capitalized,
+                planLabel: Self.planLabel(for: credential.subscriptionType),
                 sessionPercent: Int(usage.fiveHour.utilization.rounded()),
                 sessionResetsAt: parseISODate(usage.fiveHour.resetsAt),
                 weeklyPercent: Int(usage.sevenDay.utilization.rounded()),
@@ -77,6 +80,16 @@ final class UsageViewModel: ObservableObject {
             return .staleWithError(last.snapshot, fetchedAt: last.fetchedAt, message: message)
         }
         return .errorNoCache(message)
+    }
+
+    private static func planLabel(for subscriptionType: String) -> String {
+        switch subscriptionType.lowercased() {
+        case "pro": return "Pro"
+        case "max": return "Max"
+        case "team": return "Team"
+        case "enterprise": return "Enterprise"
+        default: return subscriptionType.capitalized
+        }
     }
 }
 
