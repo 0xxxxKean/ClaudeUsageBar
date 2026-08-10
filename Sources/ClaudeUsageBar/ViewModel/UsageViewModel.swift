@@ -23,25 +23,74 @@ enum UsageState: Equatable {
 @MainActor
 final class UsageViewModel: ObservableObject {
     @Published private(set) var state: UsageState = .idle
+    /// Masked Claude.ai login email, e.g. "kean****@icloud.com". `nil` while
+    /// logged out or if the account endpoint doesn't return one.
+    @Published private(set) var accountLabel: String?
+    /// "IP · City, Region, Country" summary. Independent of login state.
+    @Published private(set) var ipLocationLabel: String?
+    /// Last-known usage for accounts previously logged in on this machine
+    /// (excludes whichever account is currently active), newest first. Stale
+    /// by nature — `claude auth login` overwrites the single Keychain
+    /// credential on account switch, so these can't be live-refreshed.
+    @Published private(set) var otherAccountSnapshots: [AccountUsageSnapshot] = []
 
     private let credentialStore: CredentialStore
     private let apiClient: UsageAPIClient
+    private let accountClient: AccountAPIClient
+    private let ipLocationClient: IPLocationAPIClient
+    private let historyStore: AccountUsageHistoryStore
     private var lastSnapshot: (snapshot: UsageSnapshot, fetchedAt: Date)?
+    private var refreshTask: Task<Void, Never>?
 
     init(credentialStore: CredentialStore = KeychainCredentialStore(),
-         apiClient: UsageAPIClient = HTTPUsageAPIClient()) {
+         apiClient: UsageAPIClient = HTTPUsageAPIClient(),
+         accountClient: AccountAPIClient = HTTPAccountAPIClient(),
+         ipLocationClient: IPLocationAPIClient = HTTPIPLocationAPIClient(),
+         historyStore: AccountUsageHistoryStore = FileAccountUsageHistoryStore()) {
         self.credentialStore = credentialStore
         self.apiClient = apiClient
+        self.accountClient = accountClient
+        self.ipLocationClient = ipLocationClient
+        self.historyStore = historyStore
     }
 
+    /// Starts a background refresh loop (initial fetch + periodic re-fetch).
+    /// Call this once from the app entry point, not from the popover view —
+    /// reading the Keychain credential on every popover open is what caused
+    /// a macOS authorization prompt each time the menu bar item was clicked.
+    func startAutoRefresh(interval: Duration = .seconds(300)) {
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                await self.refresh()
+                try? await Task.sleep(for: interval)
+            }
+        }
+    }
+
+    /// Fetches usage/account/IP together. IP location is fetched unconditionally
+    /// (it needs no credential); account label only once a valid credential is
+    /// on hand. Both run concurrently with the usage fetch via `async let` and
+    /// are awaited before this returns, so callers (including tests) can rely
+    /// on `accountLabel`/`ipLocationLabel` being up to date once `refresh()`
+    /// completes — no fire-and-forget background updates.
     func refresh() async {
         state = .loading
+        async let ipLocation = fetchIPLocationOrNil()
+        await refreshUsageAndAccount()
+        ipLocationLabel = await ipLocation?.summary
+        otherAccountSnapshots = historyStore.loadAll()
+            .filter { $0.accountLabel != accountLabel }
+            .sorted { $0.recordedAt > $1.recordedAt }
+    }
 
+    private func refreshUsageAndAccount() async {
         let credential: OAuthCredential
         do {
             credential = try credentialStore.readCredential()
         } catch CredentialStoreError.notFound {
             state = .notLoggedIn
+            accountLabel = nil
             return
         } catch CredentialStoreError.unreadable(_) {
             state = fallbackState(message: "无法读取 Keychain 权限，请在弹出的系统对话框中允许访问，然后点击刷新")
@@ -53,8 +102,11 @@ final class UsageViewModel: ObservableObject {
 
         if credential.isExpired {
             state = .tokenExpired
+            accountLabel = nil
             return
         }
+
+        async let accountEmail = fetchAccountEmailOrNil(accessToken: credential.accessToken)
 
         do {
             let usage = try await apiClient.fetchUsage(accessToken: credential.accessToken)
@@ -73,6 +125,38 @@ final class UsageViewModel: ObservableObject {
         } catch {
             state = fallbackState(message: "网络请求失败")
         }
+
+        accountLabel = (await accountEmail).map(Self.maskAccount)
+
+        if let accountLabel, case .loaded(let snapshot, let fetchedAt) = state {
+            historyStore.upsert(AccountUsageSnapshot(
+                accountLabel: accountLabel,
+                planLabel: snapshot.planLabel,
+                sessionPercent: snapshot.sessionPercent,
+                weeklyPercent: snapshot.weeklyPercent,
+                recordedAt: fetchedAt
+            ))
+        }
+    }
+
+    private func fetchIPLocationOrNil() async -> IPLocationSnapshot? {
+        try? await ipLocationClient.fetchLocation()
+    }
+
+    private func fetchAccountEmailOrNil(accessToken: String) async -> String? {
+        (try? await accountClient.fetchAccountEmail(accessToken: accessToken)) ?? nil
+    }
+
+    /// Keeps the first 4 characters before "@" (or of the whole string if
+    /// there's no "@"), replaces the rest with "****". Pure function, so it's
+    /// `nonisolated` — no need to hop onto the main actor to call it.
+    nonisolated static func maskAccount(_ raw: String) -> String {
+        guard let atIndex = raw.firstIndex(of: "@") else {
+            return String(raw.prefix(4)) + "****"
+        }
+        let localPart = raw[..<atIndex]
+        let domain = raw[atIndex...]
+        return String(localPart.prefix(4)) + "****" + domain
     }
 
     private func fallbackState(message: String) -> UsageState {

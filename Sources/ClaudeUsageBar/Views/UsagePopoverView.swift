@@ -4,67 +4,140 @@ struct UsagePopoverView: View {
     @ObservedObject var viewModel: UsageViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Spacer()
-                Button {
-                    Task { await viewModel.refresh() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.plain)
-                .disabled(viewModel.state == .loading)
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            header
 
             switch viewModel.state {
             case .idle, .loading:
                 ProgressView("加载中…")
+                    .tint(ClaudeTheme.accent)
                     .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
             case .loaded(let snapshot, let fetchedAt):
                 content(for: snapshot, footer: "更新于 \(relativeTime(fetchedAt))")
             case .staleWithError(let snapshot, let fetchedAt, let message):
                 content(for: snapshot, footer: "\(message) · 上次更新于 \(relativeTime(fetchedAt))")
             case .notLoggedIn:
-                Text("未检测到 Claude.ai 订阅登录")
-                    .font(.callout)
-                Text("请先在终端运行 claude auth login")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                messageBlock(title: "未检测到 Claude.ai 订阅登录", detail: "请先在终端运行 claude auth login")
             case .tokenExpired:
-                Text("登录已过期")
-                    .font(.callout)
-                Text("请在终端运行一次 claude 命令刷新后重试")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                messageBlock(title: "登录已过期", detail: "请在终端运行一次 claude 命令刷新后重试")
             case .errorNoCache(let message):
-                Text("获取用量失败")
-                    .font(.callout)
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                messageBlock(title: "获取用量失败", detail: message)
+            }
+
+            if viewModel.accountLabel != nil || viewModel.ipLocationLabel != nil {
+                Divider()
+                infoFooter
+            }
+
+            if !viewModel.otherAccountSnapshots.isEmpty {
+                Divider()
+                otherAccountsSection
             }
         }
-        .padding()
-        .frame(width: 260)
-        .task {
-            await viewModel.refresh()
+        .padding(16)
+        .frame(width: 280)
+        .background(ClaudeTheme.surface)
+    }
+
+    private var infoFooter: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let accountLabel = viewModel.accountLabel {
+                infoRow(label: "账号", value: accountLabel)
+            }
+            if let ipLocationLabel = viewModel.ipLocationLabel {
+                infoRow(label: "IP", value: ipLocationLabel)
+            }
+        }
+    }
+
+    private func infoRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption2)
+    }
+
+    private var otherAccountsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("其他账号 · 上次已知（非实时）")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            ForEach(viewModel.otherAccountSnapshots, id: \.accountLabel) { snapshot in
+                otherAccountRow(snapshot)
+            }
+        }
+    }
+
+    private func otherAccountRow(_ snapshot: AccountUsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(snapshot.accountLabel)
+                    .font(.caption)
+                Spacer()
+                Text(snapshot.planLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 10) {
+                Text("会话 \(snapshot.sessionPercent)%")
+                Text("每周 \(snapshot.weeklyPercent)%")
+                Spacer()
+                Text(relativeTime(snapshot.recordedAt))
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            ClaudeMarkShape()
+                .fill(ClaudeTheme.accent)
+                .frame(width: 18, height: 18)
+            Text("Claude 用量")
+                .font(.system(.headline, design: .rounded))
+            Spacer()
+            Button {
+                Task { await viewModel.refresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .foregroundStyle(ClaudeTheme.accent)
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.state == .loading)
         }
     }
 
     @ViewBuilder
     private func content(for snapshot: UsageSnapshot, footer: String) -> some View {
         Text(snapshot.planLabel)
-            .font(.headline)
+            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+            .foregroundStyle(ClaudeTheme.accent)
 
-        usageRow(title: "会话 (5小时)", percent: snapshot.sessionPercent, resetsAt: snapshot.sessionResetsAt)
-        usageRow(title: "每周", percent: snapshot.weeklyPercent, resetsAt: snapshot.weeklyResetsAt)
+        VStack(spacing: 10) {
+            usageRow(title: "会话 (5小时)", percent: snapshot.sessionPercent, resetsAt: snapshot.sessionResetsAt)
+            usageRow(title: "每周", percent: snapshot.weeklyPercent, resetsAt: snapshot.weeklyResetsAt)
 
-        if let opus = snapshot.opusPercent {
-            usageRow(title: "Opus 每周", percent: opus, resetsAt: nil)
+            if let opus = snapshot.opusPercent {
+                usageRow(title: "Opus 每周", percent: opus, resetsAt: nil)
+            }
+            if let sonnet = snapshot.sonnetPercent {
+                usageRow(title: "Sonnet 每周", percent: sonnet, resetsAt: nil)
+            }
         }
-        if let sonnet = snapshot.sonnetPercent {
-            usageRow(title: "Sonnet 每周", percent: sonnet, resetsAt: nil)
-        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(ClaudeTheme.cardStroke, lineWidth: 1)
+                )
+        )
 
         Text(footer)
             .font(.caption2)
@@ -72,20 +145,41 @@ struct UsagePopoverView: View {
     }
 
     private func usageRow(title: String, percent: Int, resetsAt: Date?) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let color = ClaudeTheme.severityColor(forPercent: percent)
+        return VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(title)
                     .font(.subheadline)
                 Spacer()
                 Text("\(percent)%")
-                    .font(.subheadline.monospacedDigit())
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(color)
             }
-            ProgressView(value: Double(percent), total: 100)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(ClaudeTheme.accentSoft)
+                    Capsule()
+                        .fill(color)
+                        .frame(width: geometry.size.width * CGFloat(min(max(percent, 0), 100)) / 100)
+                }
+            }
+            .frame(height: 6)
             if let resetsAt {
-                Text("重置于 \(resetsAt.formatted(date: .abbreviated, time: .shortened))")
+                Text("下次重置 \(resetsAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private func messageBlock(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.callout)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

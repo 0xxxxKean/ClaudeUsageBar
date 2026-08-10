@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ClaudeUsageBar
 
@@ -19,6 +20,25 @@ private final class QueuedUsageAPIClient: UsageAPIClient {
         }
         return try results.removeFirst().get()
     }
+}
+
+private struct StubAccountAPIClient: AccountAPIClient {
+    var email: String?
+    func fetchAccountEmail(accessToken: String) async throws -> String? { email }
+}
+
+private struct StubIPLocationAPIClient: IPLocationAPIClient {
+    var result: Result<IPLocationSnapshot, Error> = .failure(IPLocationError.requestFailed)
+    func fetchLocation() async throws -> IPLocationSnapshot { try result.get() }
+}
+
+private final class InMemoryAccountUsageHistoryStore: AccountUsageHistoryStore {
+    private(set) var snapshots: [String: AccountUsageSnapshot] = [:]
+    init(seed: [AccountUsageSnapshot] = []) {
+        for snapshot in seed { snapshots[snapshot.accountLabel] = snapshot }
+    }
+    func loadAll() -> [AccountUsageSnapshot] { Array(snapshots.values) }
+    func upsert(_ snapshot: AccountUsageSnapshot) { snapshots[snapshot.accountLabel] = snapshot }
 }
 
 private func makeCredential(expiresInFuture: Bool) -> OAuthCredential {
@@ -50,7 +70,10 @@ private func makeUsageResponse() -> UsageResponse {
 @Test func successfulRefreshProducesLoadedState() async {
     let viewModel = UsageViewModel(
         credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
-        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: InMemoryAccountUsageHistoryStore()
     )
 
     await viewModel.refresh()
@@ -68,7 +91,10 @@ private func makeUsageResponse() -> UsageResponse {
 @Test func missingCredentialProducesNotLoggedIn() async {
     let viewModel = UsageViewModel(
         credentialStore: FakeCredentialStore(result: .failure(CredentialStoreError.notFound)),
-        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: InMemoryAccountUsageHistoryStore()
     )
 
     await viewModel.refresh()
@@ -80,7 +106,10 @@ private func makeUsageResponse() -> UsageResponse {
 @Test func expiredCredentialProducesTokenExpired() async {
     let viewModel = UsageViewModel(
         credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: false))),
-        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())])
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: InMemoryAccountUsageHistoryStore()
     )
 
     await viewModel.refresh()
@@ -92,7 +121,10 @@ private func makeUsageResponse() -> UsageResponse {
 @Test func networkFailureWithNoCacheProducesErrorNoCache() async {
     let viewModel = UsageViewModel(
         credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
-        apiClient: QueuedUsageAPIClient(results: [.failure(UsageAPIError.httpError(500))])
+        apiClient: QueuedUsageAPIClient(results: [.failure(UsageAPIError.httpError(500))]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: InMemoryAccountUsageHistoryStore()
     )
 
     await viewModel.refresh()
@@ -111,7 +143,10 @@ private func makeUsageResponse() -> UsageResponse {
     ])
     let viewModel = UsageViewModel(
         credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
-        apiClient: client
+        apiClient: client,
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: InMemoryAccountUsageHistoryStore()
     )
 
     await viewModel.refresh()
@@ -123,4 +158,143 @@ private func makeUsageResponse() -> UsageResponse {
     }
     #expect(snapshot.sessionPercent == 63)
     #expect(!message.isEmpty)
+}
+
+@MainActor
+@Test func successfulRefreshSetsMaskedAccountLabel() async {
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(email: "kean@icloud.com"),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: InMemoryAccountUsageHistoryStore()
+    )
+
+    await viewModel.refresh()
+
+    #expect(viewModel.accountLabel == "kean****@icloud.com")
+}
+
+@MainActor
+@Test func notLoggedInClearsAccountLabel() async {
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .failure(CredentialStoreError.notFound)),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(email: "kean@icloud.com"),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: InMemoryAccountUsageHistoryStore()
+    )
+
+    await viewModel.refresh()
+
+    #expect(viewModel.accountLabel == nil)
+}
+
+@MainActor
+@Test func successfulRefreshSetsIPLocationLabel() async {
+    let location = IPLocationSnapshot(ip: "1.2.3.4", city: "Phoenix", region: "Arizona", country: "US")
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(result: .success(location)),
+        historyStore: InMemoryAccountUsageHistoryStore()
+    )
+
+    await viewModel.refresh()
+
+    #expect(viewModel.ipLocationLabel == "1.2.3.4 · Phoenix, Arizona, US")
+}
+
+@MainActor
+@Test func ipLocationLabelSetEvenWhenNotLoggedIn() async {
+    let location = IPLocationSnapshot(ip: "1.2.3.4", city: nil, region: nil, country: nil)
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .failure(CredentialStoreError.notFound)),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(result: .success(location)),
+        historyStore: InMemoryAccountUsageHistoryStore()
+    )
+
+    await viewModel.refresh()
+
+    #expect(viewModel.ipLocationLabel == "1.2.3.4")
+}
+
+@Test func maskAccountKeepsFirstFourCharsBeforeAt() {
+    #expect(UsageViewModel.maskAccount("kean@icloud.com") == "kean****@icloud.com")
+}
+
+@Test func maskAccountHandlesShortLocalPart() {
+    #expect(UsageViewModel.maskAccount("ab@x.com") == "ab****@x.com")
+}
+
+@Test func maskAccountHandlesNoAtSign() {
+    #expect(UsageViewModel.maskAccount("keanchen") == "kean****")
+}
+
+@MainActor
+@Test func successfulRefreshRecordsHistoryForCurrentAccount() async {
+    let historyStore = InMemoryAccountUsageHistoryStore()
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(email: "kean@icloud.com"),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: historyStore
+    )
+
+    await viewModel.refresh()
+
+    let recorded = historyStore.loadAll()
+    #expect(recorded.count == 1)
+    #expect(recorded.first?.accountLabel == "kean****@icloud.com")
+    #expect(recorded.first?.sessionPercent == 63)
+}
+
+@MainActor
+@Test func otherAccountSnapshotsExcludesCurrentAccountAndIncludesPreviouslySeenOnes() async {
+    let staleSnapshot = AccountUsageSnapshot(
+        accountLabel: "team****@work.com",
+        planLabel: "Team",
+        sessionPercent: 40,
+        weeklyPercent: 55,
+        recordedAt: Date(timeIntervalSinceNow: -3600)
+    )
+    let historyStore = InMemoryAccountUsageHistoryStore(seed: [staleSnapshot])
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(email: "kean@icloud.com"),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: historyStore
+    )
+
+    await viewModel.refresh()
+
+    #expect(viewModel.otherAccountSnapshots.map(\.accountLabel) == ["team****@work.com"])
+}
+
+@MainActor
+@Test func otherAccountSnapshotsVisibleEvenWhenLoggedOut() async {
+    let staleSnapshot = AccountUsageSnapshot(
+        accountLabel: "team****@work.com",
+        planLabel: "Team",
+        sessionPercent: 40,
+        weeklyPercent: 55,
+        recordedAt: Date(timeIntervalSinceNow: -3600)
+    )
+    let historyStore = InMemoryAccountUsageHistoryStore(seed: [staleSnapshot])
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .failure(CredentialStoreError.notFound)),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: historyStore
+    )
+
+    await viewModel.refresh()
+
+    #expect(viewModel.otherAccountSnapshots.map(\.accountLabel) == ["team****@work.com"])
 }
