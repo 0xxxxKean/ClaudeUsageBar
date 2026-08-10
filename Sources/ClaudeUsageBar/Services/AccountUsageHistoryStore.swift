@@ -4,7 +4,11 @@ struct AccountUsageSnapshot: Codable, Equatable {
     let accountLabel: String
     let planLabel: String
     let sessionPercent: Int
+    var sessionResetsAt: Date? = nil
     let weeklyPercent: Int
+    var weeklyResetsAt: Date? = nil
+    var opusPercent: Int? = nil
+    var sonnetPercent: Int? = nil
     let recordedAt: Date
 }
 
