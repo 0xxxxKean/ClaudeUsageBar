@@ -4,6 +4,10 @@ struct AccountUsageSnapshot: Codable, Equatable {
     let accountLabel: String
     let planLabel: String
     let sessionPercent: Int
+    // `var` (not `let`) is required here: a `let` property with a default
+    // value is dropped entirely from Swift's synthesized memberwise init,
+    // which would break both old-cache decoding and existing call sites
+    // that only pass the original five fields. Not an invitation to mutate.
     var sessionResetsAt: Date? = nil
     let weeklyPercent: Int
     var weeklyResetsAt: Date? = nil
