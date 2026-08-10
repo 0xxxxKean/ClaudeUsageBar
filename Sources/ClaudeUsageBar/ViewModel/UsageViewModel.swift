@@ -133,7 +133,11 @@ final class UsageViewModel: ObservableObject {
                 accountLabel: accountLabel,
                 planLabel: snapshot.planLabel,
                 sessionPercent: snapshot.sessionPercent,
+                sessionResetsAt: snapshot.sessionResetsAt,
                 weeklyPercent: snapshot.weeklyPercent,
+                weeklyResetsAt: snapshot.weeklyResetsAt,
+                opusPercent: snapshot.opusPercent,
+                sonnetPercent: snapshot.sonnetPercent,
                 recordedAt: fetchedAt
             ))
         }

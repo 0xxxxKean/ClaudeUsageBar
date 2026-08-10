@@ -66,6 +66,18 @@ private func makeUsageResponse() -> UsageResponse {
     return try! parseUsageResponseData(json)
 }
 
+private func makeUsageResponseWithOpusAndSonnet() -> UsageResponse {
+    let json = """
+    {
+      "five_hour": { "utilization": 63.0, "resets_at": "2026-07-14T16:49:59Z" },
+      "seven_day": { "utilization": 28.0, "resets_at": "2026-07-20T02:59:59Z" },
+      "seven_day_opus": { "utilization": 12.0, "resets_at": "2026-07-20T02:59:59Z" },
+      "seven_day_sonnet": { "utilization": 30.0, "resets_at": "2026-07-20T02:59:59Z" }
+    }
+    """.data(using: .utf8)!
+    return try! parseUsageResponseData(json)
+}
+
 @MainActor
 @Test func successfulRefreshProducesLoadedState() async {
     let viewModel = UsageViewModel(
@@ -251,6 +263,26 @@ private func makeUsageResponse() -> UsageResponse {
     #expect(recorded.count == 1)
     #expect(recorded.first?.accountLabel == "kean****@icloud.com")
     #expect(recorded.first?.sessionPercent == 63)
+}
+
+@MainActor
+@Test func successfulRefreshRecordsFullDetailInHistory() async {
+    let historyStore = InMemoryAccountUsageHistoryStore()
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .success(makeCredential(expiresInFuture: true))),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponseWithOpusAndSonnet())]),
+        accountClient: StubAccountAPIClient(email: "kean@icloud.com"),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: historyStore
+    )
+
+    await viewModel.refresh()
+
+    let recorded = historyStore.loadAll().first
+    #expect(recorded?.sessionResetsAt != nil)
+    #expect(recorded?.weeklyResetsAt != nil)
+    #expect(recorded?.opusPercent == 12)
+    #expect(recorded?.sonnetPercent == 30)
 }
 
 @MainActor
