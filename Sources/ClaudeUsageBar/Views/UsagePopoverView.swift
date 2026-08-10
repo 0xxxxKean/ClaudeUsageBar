@@ -1,5 +1,21 @@
 import SwiftUI
 
+private extension View {
+    /// Shared card chrome: padding, rounded background, and stroke border.
+    func claudeCard() -> some View {
+        self
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(ClaudeTheme.cardStroke, lineWidth: 1)
+                    )
+            )
+    }
+}
+
 struct UsagePopoverView: View {
     @ObservedObject var viewModel: UsageViewModel
     /// Which cached "other account" cards are expanded, keyed by masked
@@ -89,6 +105,8 @@ struct UsagePopoverView: View {
                 otherAccountSummaryRow(snapshot, isExpanded: isExpanded)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("\(snapshot.accountLabel), \(snapshot.planLabel)")
+            .accessibilityHint(isExpanded ? "收起详情" : "展开详情")
 
             if isExpanded {
                 otherAccountExpandedDetail(snapshot)
@@ -147,15 +165,7 @@ struct UsagePopoverView: View {
                 usageRow(title: "Sonnet 每周", percent: sonnet, resetsAt: nil)
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(ClaudeTheme.cardStroke, lineWidth: 1)
-                )
-        )
+        .claudeCard()
 
         Text("上次记录于 \(relativeTime(snapshot.recordedAt))")
             .font(.caption2)
@@ -198,15 +208,7 @@ struct UsagePopoverView: View {
                 usageRow(title: "Sonnet 每周", percent: sonnet, resetsAt: nil)
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(ClaudeTheme.cardStroke, lineWidth: 1)
-                )
-        )
+        .claudeCard()
 
         Text(footer)
             .font(.caption2)
