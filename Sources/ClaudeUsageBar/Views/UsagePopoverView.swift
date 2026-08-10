@@ -2,6 +2,10 @@ import SwiftUI
 
 struct UsagePopoverView: View {
     @ObservedObject var viewModel: UsageViewModel
+    /// Which cached "other account" cards are expanded, keyed by masked
+    /// accountLabel. Per-account, independent — not persisted across
+    /// popover recreations.
+    @State private var expandedAccounts: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -73,6 +77,26 @@ struct UsagePopoverView: View {
     }
 
     private func otherAccountRow(_ snapshot: AccountUsageSnapshot) -> some View {
+        let isExpanded = expandedAccounts.contains(snapshot.accountLabel)
+        return VStack(alignment: .leading, spacing: 8) {
+            Button {
+                if isExpanded {
+                    expandedAccounts.remove(snapshot.accountLabel)
+                } else {
+                    expandedAccounts.insert(snapshot.accountLabel)
+                }
+            } label: {
+                otherAccountSummaryRow(snapshot, isExpanded: isExpanded)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                otherAccountExpandedDetail(snapshot)
+            }
+        }
+    }
+
+    private func otherAccountSummaryRow(_ snapshot: AccountUsageSnapshot, isExpanded: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(snapshot.accountLabel)
@@ -81,16 +105,61 @@ struct UsagePopoverView: View {
                 Text(snapshot.planLabel)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             HStack(spacing: 10) {
-                Text("会话 \(snapshot.sessionPercent)%")
-                Text("每周 \(snapshot.weeklyPercent)%")
+                Text(otherAccountSessionSummary(snapshot))
+                Text(otherAccountWeeklySummary(snapshot))
                 Spacer()
-                Text(relativeTime(snapshot.recordedAt))
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
+        .contentShape(Rectangle())
+    }
+
+    private func otherAccountSessionSummary(_ snapshot: AccountUsageSnapshot) -> String {
+        guard let resetsAt = snapshot.sessionResetsAt else {
+            return "会话 \(snapshot.sessionPercent)%"
+        }
+        return "会话 \(snapshot.sessionPercent)% · 重置于 \(resetsAt.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private func otherAccountWeeklySummary(_ snapshot: AccountUsageSnapshot) -> String {
+        guard let resetsAt = snapshot.weeklyResetsAt else {
+            return "每周 \(snapshot.weeklyPercent)%"
+        }
+        return "每周 \(snapshot.weeklyPercent)% · 重置于 \(resetsAt.formatted(date: .omitted, time: .shortened))"
+    }
+
+    @ViewBuilder
+    private func otherAccountExpandedDetail(_ snapshot: AccountUsageSnapshot) -> some View {
+        VStack(spacing: 10) {
+            usageRow(title: "会话 (5小时)", percent: snapshot.sessionPercent, resetsAt: snapshot.sessionResetsAt)
+            usageRow(title: "每周", percent: snapshot.weeklyPercent, resetsAt: snapshot.weeklyResetsAt)
+
+            if let opus = snapshot.opusPercent {
+                usageRow(title: "Opus 每周", percent: opus, resetsAt: nil)
+            }
+            if let sonnet = snapshot.sonnetPercent {
+                usageRow(title: "Sonnet 每周", percent: sonnet, resetsAt: nil)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(ClaudeTheme.cardStroke, lineWidth: 1)
+                )
+        )
+
+        Text("上次记录于 \(relativeTime(snapshot.recordedAt))")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
     }
 
     private var header: some View {
