@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private extension View {
@@ -22,6 +23,9 @@ struct UsagePopoverView: View {
     /// accountLabel. Per-account, independent — not persisted across
     /// popover recreations.
     @State private var expandedAccounts: Set<String> = []
+    /// Masked accountLabel awaiting delete confirmation, or nil if no
+    /// confirmation dialog is currently showing.
+    @State private var pendingDeleteAccount: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -58,6 +62,26 @@ struct UsagePopoverView: View {
         .padding(16)
         .frame(width: 280)
         .background(ClaudeTheme.surface)
+        .confirmationDialog(
+            "删除这个账号的历史记录？",
+            isPresented: Binding(
+                get: { pendingDeleteAccount != nil },
+                set: { if !$0 { pendingDeleteAccount = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                if let accountLabel = pendingDeleteAccount {
+                    viewModel.deleteHistorySnapshot(accountLabel: accountLabel)
+                }
+                pendingDeleteAccount = nil
+            }
+            Button("取消", role: .cancel) {
+                pendingDeleteAccount = nil
+            }
+        } message: {
+            Text("仅清除本机保存的上次已知用量，不影响该账号本身。")
+        }
     }
 
     private var infoFooter: some View {
@@ -95,18 +119,30 @@ struct UsagePopoverView: View {
     private func otherAccountRow(_ snapshot: AccountUsageSnapshot) -> some View {
         let isExpanded = expandedAccounts.contains(snapshot.accountLabel)
         return VStack(alignment: .leading, spacing: 8) {
-            Button {
-                if isExpanded {
-                    expandedAccounts.remove(snapshot.accountLabel)
-                } else {
-                    expandedAccounts.insert(snapshot.accountLabel)
+            HStack(spacing: 4) {
+                Button {
+                    if isExpanded {
+                        expandedAccounts.remove(snapshot.accountLabel)
+                    } else {
+                        expandedAccounts.insert(snapshot.accountLabel)
+                    }
+                } label: {
+                    otherAccountSummaryRow(snapshot, isExpanded: isExpanded)
                 }
-            } label: {
-                otherAccountSummaryRow(snapshot, isExpanded: isExpanded)
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(snapshot.accountLabel), \(snapshot.planLabel)")
+                .accessibilityHint(isExpanded ? "收起详情" : "展开详情")
+
+                Button {
+                    pendingDeleteAccount = snapshot.accountLabel
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("删除 \(snapshot.accountLabel) 的历史记录")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(snapshot.accountLabel), \(snapshot.planLabel)")
-            .accessibilityHint(isExpanded ? "收起详情" : "展开详情")
 
             if isExpanded {
                 otherAccountExpandedDetail(snapshot)
@@ -188,6 +224,15 @@ struct UsagePopoverView: View {
             }
             .buttonStyle(.plain)
             .disabled(viewModel.state == .loading)
+
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "power")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("退出")
         }
     }
 

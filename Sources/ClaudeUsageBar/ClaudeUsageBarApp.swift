@@ -1,49 +1,19 @@
-import AppKit
 import SwiftUI
 
 @main
 struct ClaudeUsageBarApp: App {
-    @StateObject private var viewModel: UsageViewModel
-
-    init() {
-        let model = UsageViewModel()
-        _viewModel = StateObject(wrappedValue: model)
-        model.startAutoRefresh()
-    }
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        MenuBarExtra {
-            UsagePopoverView(viewModel: viewModel)
-        } label: {
-            menuBarLabel
-        }
-        .menuBarExtraStyle(.window)
-    }
-
-    @ViewBuilder
-    private var menuBarLabel: some View {
-        switch viewModel.state {
-        case .loaded(let snapshot, _):
-            menuBarContent(percent: snapshot.sessionPercent)
-        case .staleWithError(let snapshot, _, _):
-            menuBarContent(percent: snapshot.sessionPercent)
-        default:
-            Image(nsImage: ClaudeMark.image(pointSize: 15, color: NSColor(ClaudeTheme.accent)))
-                .frame(width: 15, height: 15)
-        }
-    }
-
-    private func menuBarContent(percent: Int) -> some View {
-        // Icon always stays Claude's brand terracotta — a stable identity
-        // mark — while the percent text still carries the severity color so
-        // usage pressure is still visible at a glance.
-        let color = ClaudeTheme.severityColor(forPercent: percent)
-        return HStack(spacing: 4) {
-            Image(nsImage: ClaudeMark.image(pointSize: 15, color: NSColor(ClaudeTheme.accent)))
-                .frame(width: 15, height: 15)
-            Text("\(percent)%")
-                .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(color)
+        // All UI is AppKit-managed (status item + NSPopover) from AppDelegate —
+        // MenuBarExtra(.window) centers its content inside a fixed-size window
+        // with no way to override that from the content view, which left a
+        // blank gap above and below whenever the "other accounts" detail was
+        // expanded/collapsed. NSPopover resizes correctly (anchored at the
+        // status item, shrinking from the bottom) so this Scene exists only to
+        // satisfy App's requirement of having one; it has no visible window.
+        Settings {
+            EmptyView()
         }
     }
 }
