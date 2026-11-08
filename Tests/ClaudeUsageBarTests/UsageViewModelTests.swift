@@ -39,6 +39,7 @@ private final class InMemoryAccountUsageHistoryStore: AccountUsageHistoryStore {
     }
     func loadAll() -> [AccountUsageSnapshot] { Array(snapshots.values) }
     func upsert(_ snapshot: AccountUsageSnapshot) { snapshots[snapshot.accountLabel] = snapshot }
+    func delete(accountLabel: String) { snapshots.removeValue(forKey: accountLabel) }
 }
 
 private func makeCredential(expiresInFuture: Bool) -> OAuthCredential {
@@ -306,6 +307,32 @@ private func makeUsageResponseWithOpusAndSonnet() -> UsageResponse {
     await viewModel.refresh()
 
     #expect(viewModel.otherAccountSnapshots.map(\.accountLabel) == ["team****@work.com"])
+}
+
+@MainActor
+@Test func deleteHistorySnapshotRemovesFromPublishedListAndStore() async {
+    let staleSnapshot = AccountUsageSnapshot(
+        accountLabel: "team****@work.com",
+        planLabel: "Team",
+        sessionPercent: 40,
+        weeklyPercent: 55,
+        recordedAt: Date(timeIntervalSinceNow: -3600)
+    )
+    let historyStore = InMemoryAccountUsageHistoryStore(seed: [staleSnapshot])
+    let viewModel = UsageViewModel(
+        credentialStore: FakeCredentialStore(result: .failure(CredentialStoreError.notFound)),
+        apiClient: QueuedUsageAPIClient(results: [.success(makeUsageResponse())]),
+        accountClient: StubAccountAPIClient(),
+        ipLocationClient: StubIPLocationAPIClient(),
+        historyStore: historyStore
+    )
+    await viewModel.refresh()
+    #expect(viewModel.otherAccountSnapshots.map(\.accountLabel) == ["team****@work.com"])
+
+    viewModel.deleteHistorySnapshot(accountLabel: "team****@work.com")
+
+    #expect(viewModel.otherAccountSnapshots.isEmpty)
+    #expect(historyStore.loadAll().isEmpty)
 }
 
 @MainActor

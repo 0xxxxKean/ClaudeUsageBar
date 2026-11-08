@@ -19,6 +19,7 @@ struct AccountUsageSnapshot: Codable, Equatable {
 protocol AccountUsageHistoryStore {
     func loadAll() -> [AccountUsageSnapshot]
     func upsert(_ snapshot: AccountUsageSnapshot)
+    func delete(accountLabel: String)
 }
 
 /// Persists a masked-account → last-known-usage snapshot to a small JSON file.
@@ -55,6 +56,16 @@ final class FileAccountUsageHistoryStore: AccountUsageHistoryStore {
     func upsert(_ snapshot: AccountUsageSnapshot) {
         var dict = Dictionary(uniqueKeysWithValues: loadAll().map { ($0.accountLabel, $0) })
         dict[snapshot.accountLabel] = snapshot
+        write(dict)
+    }
+
+    func delete(accountLabel: String) {
+        var dict = Dictionary(uniqueKeysWithValues: loadAll().map { ($0.accountLabel, $0) })
+        dict.removeValue(forKey: accountLabel)
+        write(dict)
+    }
+
+    private func write(_ dict: [String: AccountUsageSnapshot]) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(dict) else { return }

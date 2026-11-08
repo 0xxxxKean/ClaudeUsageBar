@@ -143,6 +143,14 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    /// Removes a stale "other account" entry from the history cache. Only
+    /// forgets the last-known snapshot kept on this machine — it has no
+    /// effect on the real Claude.ai account or any live session.
+    func deleteHistorySnapshot(accountLabel: String) {
+        historyStore.delete(accountLabel: accountLabel)
+        otherAccountSnapshots.removeAll { $0.accountLabel == accountLabel }
+    }
+
     private func fetchIPLocationOrNil() async -> IPLocationSnapshot? {
         try? await ipLocationClient.fetchLocation()
     }

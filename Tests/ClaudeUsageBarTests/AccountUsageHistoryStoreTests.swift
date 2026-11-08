@@ -35,6 +35,51 @@ private func tempFileURL() -> URL {
     #expect(loaded.first?.sonnetPercent == 30)
 }
 
+@Test func deleteRemovesOnlyTheTargetedAccount() {
+    let url = tempFileURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = FileAccountUsageHistoryStore(fileURL: url)
+
+    store.upsert(AccountUsageSnapshot(
+        accountLabel: "team****@work.com",
+        planLabel: "Team",
+        sessionPercent: 40,
+        weeklyPercent: 55,
+        recordedAt: Date(timeIntervalSince1970: 1_800_000_000)
+    ))
+    store.upsert(AccountUsageSnapshot(
+        accountLabel: "pers****@icloud.com",
+        planLabel: "Pro",
+        sessionPercent: 10,
+        weeklyPercent: 20,
+        recordedAt: Date(timeIntervalSince1970: 1_800_000_000)
+    ))
+
+    store.delete(accountLabel: "team****@work.com")
+    let loaded = store.loadAll()
+
+    #expect(loaded.count == 1)
+    #expect(loaded.first?.accountLabel == "pers****@icloud.com")
+}
+
+@Test func deleteOfUnknownAccountIsANoOp() {
+    let url = tempFileURL()
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = FileAccountUsageHistoryStore(fileURL: url)
+
+    store.upsert(AccountUsageSnapshot(
+        accountLabel: "team****@work.com",
+        planLabel: "Team",
+        sessionPercent: 40,
+        weeklyPercent: 55,
+        recordedAt: Date(timeIntervalSince1970: 1_800_000_000)
+    ))
+
+    store.delete(accountLabel: "nope****@nowhere.com")
+
+    #expect(store.loadAll().count == 1)
+}
+
 @Test func decodesOldFormatSnapshotMissingNewFieldsAsNil() throws {
     let url = tempFileURL()
     defer { try? FileManager.default.removeItem(at: url) }
