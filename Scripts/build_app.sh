@@ -6,12 +6,17 @@ cd "$(dirname "$0")/.."
 APP_NAME="ClaudeUsageBar"
 BUILD_DIR=".build/release"
 APP_BUNDLE="dist/${APP_NAME}.app"
-# Stable local self-signed identity (created by Scripts/create_signing_identity.sh).
-# Ad-hoc signing (`--sign -`) has no stable Team ID, so macOS can't reliably
-# remember "Always Allow" for Keychain access across app relaunches — signing
-# with this fixed identity instead means the Keychain authorization prompt for
-# "Claude Code-credentials" only needs to be granted once, ever.
-SIGNING_IDENTITY="ClaudeUsageBar Local Signing"
+# A Developer ID Application identity signs with a real, Apple-issued Team ID
+# — stable across rebuilds (so macOS keeps remembering "Always Allow" for the
+# "Claude Code-credentials" Keychain prompt) and, unlike the old local
+# self-signed identity, also notarizable for distribution (see
+# Scripts/build_dmg.sh). Falls back to the local self-signed identity from
+# Scripts/create_signing_identity.sh if no Developer ID identity is installed,
+# for contributors without one.
+SIGNING_IDENTITY=$(security find-identity -v -p codesigning | grep -o '"Developer ID Application:[^"]*"' | head -1 | tr -d '"')
+if [ -z "${SIGNING_IDENTITY}" ]; then
+    SIGNING_IDENTITY="ClaudeUsageBar Local Signing"
+fi
 
 echo "Building release binary..."
 swift build -c release
@@ -59,6 +64,8 @@ if ! security find-identity -v -p codesigning | grep -q "${SIGNING_IDENTITY}"; t
     echo "error: signing identity '${SIGNING_IDENTITY}' not found. Run Scripts/create_signing_identity.sh once first." >&2
     exit 1
 fi
-codesign --force --deep --sign "${SIGNING_IDENTITY}" "${APP_BUNDLE}"
+# Hardened runtime is required for notarization (Scripts/build_dmg.sh); it's a
+# no-op for local-only use since this app does nothing it would restrict.
+codesign --force --deep --options runtime --sign "${SIGNING_IDENTITY}" "${APP_BUNDLE}"
 
 echo "Done: ${APP_BUNDLE}"

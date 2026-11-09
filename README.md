@@ -19,7 +19,7 @@ A native macOS menu bar app that shows your [Claude Code](https://claude.com/cla
 
 ### Download
 
-[Download the latest .dmg](https://github.com/0xxxxKean/ClaudeUsageBar/releases/latest) — but note it's signed with a local self-signed certificate, not notarized by Apple, so Gatekeeper will likely refuse to open it. Right-click the app → **Open**, or run `xattr -cr /Applications/ClaudeUsageBar.app` after installing. Building from source avoids this, since the app is signed on your own machine.
+[Download the latest .dmg](https://github.com/0xxxxKean/ClaudeUsageBar/releases/latest) — signed with a Developer ID certificate and notarized by Apple, so it opens normally.
 
 ### Build from source
 
@@ -38,6 +38,8 @@ open /Applications/ClaudeUsageBar.app
 ```bash
 ./Scripts/build_dmg.sh   # builds dist/ClaudeUsageBar.dmg
 ```
+
+If a Developer ID Application identity is installed, `build_dmg.sh` also submits the .dmg for notarization and staples the ticket automatically. Without one, it builds a self-signed .dmg that Gatekeeper will flag as from an unidentified developer on other machines.
 
 On first launch, macOS will prompt once for Keychain access (to read the Claude Code login credential) — allow it.
 
