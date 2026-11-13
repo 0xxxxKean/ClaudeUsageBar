@@ -8,7 +8,7 @@ struct OAuthCredential: Codable {
     let accessToken: String
     let refreshToken: String
     let expiresAt: Double
-    let subscriptionType: String
+    let subscriptionType: String?
 
     var isExpired: Bool {
         let expiryDate = Date(timeIntervalSince1970: expiresAt / 1000.0)

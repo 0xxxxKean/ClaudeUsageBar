@@ -178,13 +178,14 @@ final class UsageViewModel: ObservableObject {
         return .errorNoCache(message)
     }
 
-    private static func planLabel(for subscriptionType: String) -> String {
-        switch subscriptionType.lowercased() {
+    private static func planLabel(for subscriptionType: String?) -> String {
+        switch subscriptionType?.lowercased() {
         case "pro": return "Pro"
         case "max": return "Max"
         case "team": return "Team"
         case "enterprise": return "Enterprise"
-        default: return subscriptionType.capitalized
+        case nil: return "Claude"
+        default: return subscriptionType!.capitalized
         }
     }
 }
